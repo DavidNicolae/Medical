@@ -1,23 +1,35 @@
 import os
 import h5py
-from torch import Tensor
+import torch
+import torch.utils.data as data
+import matplotlib.pyplot as plt
 
 DIR = 'data'
 FILE_FORMAT = 'camelyonpatch_level_2_split_{}_{}.h5'
 
-def load_slice(slice, stage='train'):
+class HE_Dataset(data.Dataset):
     
-    images = h5py.File(os.path.join(DIR, FILE_FORMAT.format(stage, 'x')), 'r')
-    labels = h5py.File(os.path.join(DIR, FILE_FORMAT.format(stage, 'y')), 'r')
-    
-    data_x = images[list(images.keys())[0]]
-    data_y = labels[list(labels.keys())[0]]
-    
-    x = Tensor(data_x[slice[0]:slice[1]] / 255)
-    y = Tensor(data_y[slice[0]:slice[1]]).flatten()
-    
-    return x, y
+    def __init__(self, stage='train') -> None:
+        super().__init__()
+        self.load(stage)
 
+    def load(self, stage):  
+        self.images = h5py.File(os.path.join(DIR, FILE_FORMAT.format(stage, 'x')), 'r')
+        self.labels = h5py.File(os.path.join(DIR, FILE_FORMAT.format(stage, 'y')), 'r')
+        
+        self.x_key = list(self.images.keys())[0]
+        self.y_key = list(self.labels.keys())[0]
+    
+    def __len__(self):
+        return len(self.images[self.x_key])
+    
+    def __getitem__(self, index):
+        x = torch.from_numpy(self.images[self.x_key][index] / 255).float()
+        y = torch.from_numpy(self.labels[self.y_key][index]).flatten().float()
+        return x, y
+        
 if __name__ == '__main__':
-    x, y = load_slice((0, 6))
-    print(x[0], y[0].dtype)
+    dataset = HE_Dataset()
+    x, y = dataset.__getitem__(3)
+    print(x.dtype, y.dtype)
+    
