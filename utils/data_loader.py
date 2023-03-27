@@ -4,7 +4,7 @@ import torch
 import torch.utils.data as data
 import matplotlib.pyplot as plt
 
-DIR = 'data'
+DIR = 'h5_data'
 FILE_FORMAT = 'camelyonpatch_level_2_split_{}_{}.h5'
 
 class HE_Dataset(data.Dataset):
