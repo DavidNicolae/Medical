@@ -27,43 +27,43 @@ def h5_to_jpeg(path):
         labels = h5py.File(os.path.join(DIR, FILE_FORMAT.format(stage, 'y')), 'r')
         x_key = list(images.keys())[0]
         y_key = list(labels.keys())[0]
+        labels_dict = {}
         
         for index, image in enumerate(images[x_key]):
             img = Image.fromarray(image)
-            img.save(os.path.join(inner_path, 'img_' + str(index) + '.jpeg'), 'jpeg')
-        
-        labels = {'labels': labels[y_key][:].flatten().tolist()}
+            img_name = 'img_' + str(index) + '.jpeg'
+            img.save(os.path.join(inner_path, img_name), 'jpeg')
+            labels_dict[index] = (img_name, labels[y_key][index].flatten().tolist()[0])
+            
         with open(os.path.join(inner_path, 'labels.json'), 'w') as f:
-            json.dump(labels, f, indent=4)
+            json.dump(labels_dict, f, indent=4)
 
 class HE_Dataset(data.Dataset):
     
-    def __init__(self, data) -> None:
+    def __init__(self, data_dir, labels_file) -> None:
         super().__init__()
-        self.data = data
-        files = os.listdir(data)
-        self.images = files[:-1]
-        labels_file = open(os.path.join(data, files[-1]), 'r')
-        self.labels = json.load(labels_file)['labels']
-        
-        self.transform = T.Compose([T.Resize(224)])
+        self.data_dir = data_dir
+        f = open(os.path.join(data_dir, labels_file), 'r')
+        self.labels = json.load(f)
     
     def __len__(self):
-        return len(self.images)
+        return len(self.labels)
     
     def __getitem__(self, index):
-        image =  read_image(os.path.join(self.data, self.images[index]))
-        image = self.transform(image) / 255
-        label = self.labels[index]
+        image =  read_image(os.path.join(self.data_dir, self.labels[str(index)][0]))
+        image = image / 255
+        label = self.labels[str(index)][1]
         return image, label
         
 if __name__ == '__main__':
-    # h5_to_jpeg('data\pcam')
-    dataset = HE_Dataset('data/pcam/train')
+    h5_to_jpeg('data\pcam')
+    dataset = HE_Dataset('data/pcam/train', 'labels.json')
     # dataset = HE_Dataset('data/pcam/test')
     # dataset = HE_Dataset('data/pcam/valid')
-    x, y = dataset.__getitem__(1)
+    x, y = dataset.__getitem__(0)
+    print(dataset.__len__())
+    print(x, y)
     print(x.shape, y)
     print(x.dtype, y)
-    # plt.imshow(x.permute(1, 2, 0))
-    # plt.show()
+    plt.imshow(x.permute(1, 2, 0))
+    plt.show()

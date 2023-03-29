@@ -1,73 +1,81 @@
 from tqdm.notebook import tqdm
 import torch
+import os
+import numpy as np
 from torch import nn
 from torchmetrics.functional import accuracy
 import torch.utils.data as data
 import pytorch_lightning as pl
 from data_loader import HE_Dataset, h5_to_jpeg
 
+LOGS = 'lightning_logs'
+
 class PCAM_Model(pl.LightningModule):
-    def __init__(self, model, loss_module, lr) -> None:
+    def __init__(self, lr):
         super().__init__()
-        self.model = model
-        self.outputs = []
-        
-        self.model.eval()
-        for param in self.model.parameters():
-            param.requires_grad = False
-        self.model.classifier = nn.Linear(1024, 2)
-        
-        self.loss_module = loss_module
+        self.backbone = torch.hub.load('pytorch/vision:v0.10.0', 'densenet121', weights='DenseNet121_Weights.DEFAULT')
+        self.loss_module = nn.CrossEntropyLoss()
         self.lr = lr
-    
+        self.backbone.eval()
+        
+        for param in self.backbone.parameters():
+            param.requires_grad = False
+        self.backbone.classifier = nn.Linear(1024, 2)
+        self.save_hyperparameters()
+        
     def forward(self, x):
-        x = self.model(x)
+        x = self.backbone(x)
         return x
     
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), self.lr)
         return optimizer
     
-    def training_step(self, batch, batch_idx):
+    def training_step(self, batch):
         x, y = batch
         y_h = self(x)
         loss = self.loss_module(y_h, y)
         y_h = y_h.argmax(dim=1)
-        # print(y_h.shape, y.shape)
         train_accuracy = accuracy(y_h, y, task='binary')
         self.log('train_accuracy', train_accuracy, prog_bar=True)
         self.log('train_loss', loss)
         return {'loss': loss, 'train_accuracy': train_accuracy}
     
-    def test_step(self, batch, batch_idx):
+    def test_step(self, batch, _):
         x, y = batch
-        # print(x.shape)
         y_h = self(x)
         loss = self.loss_module(y_h, y)
         y_h = y_h.argmax(dim=1)
         test_accuracy = accuracy(y_h, y, task='binary')
-        return {'test_loss': loss, 'test_accuracy': test_accuracy}
+        self.log('test_accuracy', test_accuracy, prog_bar= True)
+        self.log('test_loss', loss)
+        return {'loss': loss, 'test_accuracy': test_accuracy}
     
-    # def on_test_epoch_end(self, outputs):
-    #     test_outs = [test_out['test_accuracy'] for test_out in outputs]
-    #     total_accuracy = torch.stack(test_outs).mean()
-    #     self.log('total_test_accuracy', total_accuracy, on_epoch=True, on_step=False)
-    #     return total_accuracy
 
-if __name__ == '__main__': 
+if __name__ == '__main__':
+    h5_to_jpeg('data\pcam')
     pl.seed_everything(42)
-    densenet = torch.hub.load('pytorch/vision:v0.10.0', 'densenet121' , weights='DenseNet121_Weights.DEFAULT')
     
     lr = 0.01
     loss = nn.CrossEntropyLoss()
-    pcam = PCAM_Model(densenet, loss, lr)
+    densenet = torch.hub.load('pytorch/vision:v0.10.0', 'densenet121', weights='DenseNet121_Weights.DEFAULT')
     
-    h5_to_jpeg('data\pcam')
-    train_dataset = HE_Dataset('data/pcam/train')
-    train_loader = data.DataLoader(train_dataset, batch_size=32, num_workers=5, shuffle=True)
+    if os.path.exists(LOGS):
+        versions = os.listdir(LOGS)
+        latest = os.path.join(LOGS, versions[-1], 'checkpoints')
+        checkpoint = os.listdir(latest)[0]
+        checkpoint = os.path.join(latest, checkpoint)
+        pcam = PCAM_Model.load_from_checkpoint(checkpoint)
+        print('Loaded model from latest checkpoint: ', checkpoint)
+    else:
+        pcam = PCAM_Model(lr)
+        print('Initialized new model')
+    
+    train_dataset = HE_Dataset('data/pcam/train', 'labels.json')
+    train_loader = data.DataLoader(train_dataset, batch_size=64, pin_memory=True, num_workers=5, shuffle=True)
 
-    test_dataset = HE_Dataset('data/pcam/test')
-    test_loader = data.DataLoader(test_dataset, batch_size=32, num_workers=5)
+    test_dataset = HE_Dataset('data/pcam/test', 'labels.json')
+    test_loader = data.DataLoader(test_dataset, batch_size=64, pin_memory=True, num_workers=5)
     
     trainer = pl.Trainer(max_epochs=1, accelerator='gpu', devices=-1)
     

@@ -8,3 +8,4 @@ h5_data/camelyonpatch_level_2_split_valid_x.h5
 h5_data/camelyonpatch_level_2_split_valid_y.h5
 data/*
 lightning_logs/*
+models/__pycache__/data_loader.cpython-310.pyc
