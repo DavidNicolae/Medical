@@ -37,8 +37,8 @@ class PCAM_Model(pl.LightningModule):
         loss = self.loss_module(y_h, y)
         y_h = y_h.argmax(dim=1)
         train_accuracy = accuracy(y_h, y, task='binary')
-        self.log('train_accuracy', train_accuracy, prog_bar=True)
-        self.log('train_loss', loss)
+        self.log('train_accuracy', train_accuracy, prog_bar=True, on_epoch=True)
+        self.log('train_loss', loss, prog_bar=True, on_epoch=True)
         return {'loss': loss, 'train_accuracy': train_accuracy}
     
     def test_step(self, batch, _):
@@ -47,16 +47,15 @@ class PCAM_Model(pl.LightningModule):
         loss = self.loss_module(y_h, y)
         y_h = y_h.argmax(dim=1)
         test_accuracy = accuracy(y_h, y, task='binary')
-        self.log('test_accuracy', test_accuracy, prog_bar= True)
-        self.log('test_loss', loss)
+        self.log('test_accuracy', test_accuracy, prog_bar=True, on_epoch=True)
+        self.log('test_loss', loss, prog_bar=True, on_epoch=True)
         return {'loss': loss, 'test_accuracy': test_accuracy}
     
-
 if __name__ == '__main__':
     h5_to_jpeg('data\pcam')
     pl.seed_everything(42)
     
-    lr = 0.01
+    lr = 0.001
     loss = nn.CrossEntropyLoss()
     densenet = torch.hub.load('pytorch/vision:v0.10.0', 'densenet121', weights='DenseNet121_Weights.DEFAULT')
     
@@ -72,12 +71,12 @@ if __name__ == '__main__':
         print('Initialized new model')
     
     train_dataset = HE_Dataset('data/pcam/train', 'labels.json')
-    train_loader = data.DataLoader(train_dataset, batch_size=64, pin_memory=True, num_workers=5, shuffle=True)
+    train_loader = data.DataLoader(train_dataset, batch_size=128, pin_memory=True, num_workers=5, shuffle=True)
 
     test_dataset = HE_Dataset('data/pcam/test', 'labels.json')
-    test_loader = data.DataLoader(test_dataset, batch_size=64, pin_memory=True, num_workers=5)
+    test_loader = data.DataLoader(test_dataset, batch_size=128, pin_memory=True, num_workers=5)
     
-    trainer = pl.Trainer(max_epochs=1, accelerator='gpu', devices=-1)
+    trainer = pl.Trainer(max_epochs=5, accelerator='gpu', devices=-1)
     
     trainer.fit(pcam, train_dataloaders=train_loader)
     
