@@ -40,8 +40,9 @@ def extract_positive_patches():
         slide_path = os.path.join(DATA_DIR, row['stain'], row['tma_id'])
         slide = openslide.open_slide(slide_path)
         level = slide.get_best_level_for_downsample(DOWNSAMPLE_FACTOR)
+        scale_factor = 1 / int(slide.level_downsamples[level])
         roi_start = (row['xs'], row['ys'])
-        roi_size = (row['xe'] - row['xs'], row['ye'] - row['ys'])
+        roi_size = (int((row['xe'] - row['xs']) * scale_factor), int((row['ye'] - row['ys']) * scale_factor))
         roi = slide.read_region(roi_start, level, roi_size)
         
         # print(roi.size)
@@ -65,9 +66,6 @@ def extract_positive_patches():
                     labels_dict[index] = (patch_name, 1)
                     index += 1
                 else:
-                    # patch_name = 'img_' + str(discard_index) + '.jpeg'
-                    # patch_rgb.save(os.path.join(DISCARDED_DIR, patch_name), 'jpeg')
-                    # labels_dict[discard_index] = (patch_name, 1)
                     discard_index += 1
     print(discard_index)
                     
@@ -138,9 +136,6 @@ def extract_negative_patches():
                     labels_dict[index] = (patch_name, 1)
                     index += 1
                 else:
-                #     patch_name = 'img_' + str(discard_index) + '.jpeg'
-                #     patch_rgb.save(os.path.join(DISCARDED_DIR, patch_name), 'jpeg')
-                #     labels_dict[discard_index] = (patch_name, 1)
                     discard_index += 1
     print(discard_index)
 
