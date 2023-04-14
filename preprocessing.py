@@ -3,15 +3,17 @@ import json
 import pandas as pd
 import numpy as np
 import cv2
+from PIL import Image
 from shapely.geometry import box
 
 DATA_DIR = 'data/TMA'
 PATCHES_DIR = 'data/TMA/train'
+PCAM_DIR = 'data/pcam/train'
 OPENSLIDE_PATH = 'C:/OpenSlide/openslide-win64-20221217/bin'
 ANNOTATIONS_PATH = 'annotations.csv'
 DOWNSAMPLE_FACTOR = 10
-SATURATION_THRESHOLD = 0.07
-BRIGHTNESS_THRESHOLD = 0.5
+SATURATION_THRESHOLD = 0.45
+BRIGHTNESS_THRESHOLD = 0.7
 
 with os.add_dll_directory(OPENSLIDE_PATH):
     import openslide
@@ -42,9 +44,9 @@ def extract_positive_patches(labels):
                 patch_rgb = roi.crop((x, y, x + patch_size[0], y + patch_size[1])).convert('RGB')
                 patch_hsv = cv2.cvtColor(np.array(patch_rgb), cv2.COLOR_RGB2HSV)
                 patch_hsv = cv2.GaussianBlur(patch_hsv, (5, 5), 0)
+                
                 saturation_channel = patch_hsv[:, :, 1]
                 brightness_channel = patch_hsv[:, :, 2]
-                
                 patch_saturation = np.mean(saturation_channel / 255)
                 patch_brightness = np.mean(brightness_channel / 255)
                 
@@ -111,9 +113,38 @@ def extract_negative_patches(labels):
     
     with open(os.path.join(PATCHES_DIR, 'labels.json'), 'w') as f:
         json.dump(labels, f, indent=4)
-
+        
+def filter_images():
+    from matplotlib import pyplot as plt
+    # global PCAM_DIR
+    # PCAM_DIR = 'data/TMA/train'
+    save_dir = 'data/pcam/trainHE'
+    waste = 'data/pcam/waste'
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    if not os.path.exists(waste):
+        os.makedirs(waste)
+    labels_file = os.listdir(PCAM_DIR)[-1]
+    f = open(os.path.join(PCAM_DIR, labels_file))
+    labels = json.load(f)
+    for idx, file in enumerate(list(labels.values())[:20]):
+        image = Image.open(os.path.join(PCAM_DIR, file[0]))
+        patch_hsv = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2HSV)
+        patch_hsv = cv2.GaussianBlur(patch_hsv, (5, 5), 0)
+        
+        saturation_channel = patch_hsv[:, :, 1]
+        brightness_channel = patch_hsv[:, :, 2]
+        patch_saturation = np.mean(saturation_channel / 255)
+        patch_brightness = np.mean(brightness_channel / 255)
+        
+        print(idx, patch_saturation, patch_brightness)
+        if patch_saturation > SATURATION_THRESHOLD and patch_brightness < BRIGHTNESS_THRESHOLD:
+            image.save(os.path.join(save_dir, file[0]), 'jpeg')
+        else:
+            image.save(os.path.join(waste, file[0]), 'jpeg')
+    
 if __name__ == '__main__':
     labels = {}
-    extract_positive_patches(labels)
-    extract_negative_patches(labels)
-    print(len(labels))
+    # extract_positive_patches(labels)
+    # extract_negative_patches(labels)
+    filter_images()
