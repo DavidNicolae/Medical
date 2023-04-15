@@ -12,11 +12,11 @@ PCAM_DIR = 'data/pcam/train'
 OPENSLIDE_PATH = 'C:/OpenSlide/openslide-win64-20221217/bin'
 ANNOTATIONS_PATH = 'annotations.csv'
 DOWNSAMPLE_FACTOR = 10
-SATURATION_THRESHOLD = 0.45
+SATURATION_THRESHOLD = 0.4
 BRIGHTNESS_THRESHOLD = 0.7
 
-with os.add_dll_directory(OPENSLIDE_PATH):
-    import openslide
+# with os.add_dll_directory(OPENSLIDE_PATH):
+    # import openslide
 
 def extract_positive_patches(labels):
     csv_path = os.path.join(DATA_DIR, ANNOTATIONS_PATH)
@@ -116,8 +116,6 @@ def extract_negative_patches(labels):
         
 def filter_images():
     from matplotlib import pyplot as plt
-    # global PCAM_DIR
-    # PCAM_DIR = 'data/TMA/train'
     save_dir = 'data/pcam/trainHE'
     waste = 'data/pcam/waste'
     if not os.path.exists(save_dir):
@@ -127,18 +125,21 @@ def filter_images():
     labels_file = os.listdir(PCAM_DIR)[-1]
     f = open(os.path.join(PCAM_DIR, labels_file))
     labels = json.load(f)
-    for idx, file in enumerate(list(labels.values())[:20]):
+    for idx, file in enumerate(list(labels.values())):
         image = Image.open(os.path.join(PCAM_DIR, file[0]))
         patch_hsv = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2HSV)
         patch_hsv = cv2.GaussianBlur(patch_hsv, (5, 5), 0)
         
+        hue_channel = patch_hsv[:, :, 0]
         saturation_channel = patch_hsv[:, :, 1]
         brightness_channel = patch_hsv[:, :, 2]
         patch_saturation = np.mean(saturation_channel / 255)
         patch_brightness = np.mean(brightness_channel / 255)
-        
-        print(idx, patch_saturation, patch_brightness)
-        if patch_saturation > SATURATION_THRESHOLD and patch_brightness < BRIGHTNESS_THRESHOLD:
+        patch_hue = np.mean(hue_channel / 255)
+        ############
+        print(idx, patch_saturation, patch_brightness, patch_hue)
+        if (patch_saturation > 0.4 and patch_brightness > 0.5 and patch_brightness < 0.7 and patch_hue > 0.5 and patch_hue < 0.6) or \
+            (patch_saturation > 0.3 and patch_brightness > 0.7 and patch_brightness < 0.8 and patch_hue > 0.5 and patch_hue < 0.6):
             image.save(os.path.join(save_dir, file[0]), 'jpeg')
         else:
             image.save(os.path.join(waste, file[0]), 'jpeg')
