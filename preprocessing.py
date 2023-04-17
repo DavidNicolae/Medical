@@ -15,8 +15,8 @@ DOWNSAMPLE_FACTOR = 10
 SATURATION_THRESHOLD = 0.4
 BRIGHTNESS_THRESHOLD = 0.7
 
-# with os.add_dll_directory(OPENSLIDE_PATH):
-    # import openslide
+with os.add_dll_directory(OPENSLIDE_PATH):
+    import openslide
 
 def extract_positive_patches(labels):
     csv_path = os.path.join(DATA_DIR, ANNOTATIONS_PATH)
@@ -125,7 +125,10 @@ def filter_images():
     labels_file = os.listdir(PCAM_DIR)[-1]
     f = open(os.path.join(PCAM_DIR, labels_file))
     labels = json.load(f)
-    for idx, file in enumerate(list(labels.values())):
+    new_labels = {}
+    index = 0
+    
+    for idx, file in enumerate(list(labels.values())[:6000]):
         image = Image.open(os.path.join(PCAM_DIR, file[0]))
         patch_hsv = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2HSV)
         patch_hsv = cv2.GaussianBlur(patch_hsv, (5, 5), 0)
@@ -136,13 +139,20 @@ def filter_images():
         patch_saturation = np.mean(saturation_channel / 255)
         patch_brightness = np.mean(brightness_channel / 255)
         patch_hue = np.mean(hue_channel / 255)
-        ############
-        print(idx, patch_saturation, patch_brightness, patch_hue)
+
+        # print(idx, patch_saturation, patch_brightness, patch_hue)
         if (patch_saturation > 0.4 and patch_brightness > 0.5 and patch_brightness < 0.7 and patch_hue > 0.5 and patch_hue < 0.6) or \
             (patch_saturation > 0.3 and patch_brightness > 0.7 and patch_brightness < 0.8 and patch_hue > 0.5 and patch_hue < 0.6):
-            image.save(os.path.join(save_dir, file[0]), 'jpeg')
+            patch_name = 'img_' + str(index) + '.jpeg'
+            image.save(os.path.join(save_dir, patch_name), 'jpeg')
+            new_labels[index] = (patch_name, file[1])
+            index += 1
+            # image.save(os.path.join(save_dir, file[0]), 'jpeg')
         else:
             image.save(os.path.join(waste, file[0]), 'jpeg')
+            
+    with open(os.path.join(save_dir, 'labels.json'), 'w') as f:
+        json.dump(new_labels, f, indent=4)
     
 if __name__ == '__main__':
     labels = {}
