@@ -1,15 +1,13 @@
 import os
-import cv2
 import json
 import torch
+import shutil
 import numpy as np
 import torchvision
 import pytorch_lightning as pl
 import matplotlib.pyplot as plt
-import torch.utils.data as data
 import torchvision.models as models
 from torch import nn
-from data_loader import HE_Dataset
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.metrics import silhouette_score
@@ -19,14 +17,22 @@ from scipy.optimize import linear_sum_assignment
 # from sklearn.metrics import confusion_matrix
 
 DATA = ['data/pcam/trainHE', 'data/TMA/train']
+RESULTS = 'data/kmeans'
 
-def get_samples(nr_samples):
+def normalize(image):
+    mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
+    std = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
+    image = ((image / 255 - mean) / std).squeeze()
+    return image
+
+def get_samples(n_samples):
     all_images = []
+    image_names = []
     all_labels = []
     labels_by_class = []
     
     for dir in DATA:
-        pos, neg = nr_samples / 2, nr_samples / 2
+        pos, neg = n_samples // 2, n_samples // 2
         files = os.listdir(dir)
         labels_file = files[-1]
         f = open(os.path.join(dir, labels_file), 'r')
@@ -35,19 +41,21 @@ def get_samples(nr_samples):
             if label[1] == 1 and pos > 0:
                 img = torchvision.io.read_image(os.path.join(dir, label[0]))
                 pos -= 1
-                all_images.append(img / 255)
+                all_images.append(normalize(img))
                 all_labels.append(1)
+                image_names.append(os.path.join(dir, label[0]))
             elif label[1] == 0 and neg > 0:
                 img = torchvision.io.read_image(os.path.join(dir, label[0]))
                 neg -= 1
-                all_images.append(img / 255)
+                all_images.append(normalize(img))
                 all_labels.append(0)
-            elif pos == 0 and neg == 0:
+                image_names.append(os.path.join(dir, label[0]))
+            elif pos == 0 and neg  == 0:
                 break
     
     for i in range(len(DATA)):
-        labels_by_class += [i] * nr_samples
-    return all_images, np.array(all_labels), np.array(labels_by_class)
+        labels_by_class += [i] * n_samples
+    return all_images, image_names, np.array(all_labels), np.array(labels_by_class)
 
 class Encoder(pl.LightningModule):
     def __init__(self):
@@ -65,27 +73,29 @@ class Encoder(pl.LightningModule):
         return features
             
 class Kmeans:
-    def __init__(self, images, labels, labels_by_class, n_clusters, state, features=False, batch_size = 256):
+    def __init__(self, images, image_names, labels, labels_by_class, n_samples, n_clusters, state, features=False, batch_size = 256):
         self.kmeans = KMeans(n_clusters, random_state=state, n_init='auto')
         if features:
             features = []
             encoder = Encoder().to('cuda')
-            for i in range(0, len(images), batch_size):
-                batch = torch.stack(images[i:min(i + batch_size, len(images))])
+            for i in range(0, n_samples, batch_size):
+                batch = torch.stack(images[i:min(i + batch_size, n_samples)])
                 feature_vector = encoder(batch.to(encoder.device))
                 features.append(feature_vector.cpu().view(feature_vector.size(0), -1))
             features = torch.cat(features)
         else:
-            features = torch.stack(images).reshape((len(images), -1))
+            features = torch.stack(images).reshape((n_samples, -1))
         self.features = PCA(2).fit_transform(features)
+        self.image_names = image_names
         self.labels = labels
         self.labels_by_class = labels_by_class
+        self.n_samples = n_samples
         self.n_clusters = n_clusters
         
     def predict(self):
         self.clusters = self.kmeans.fit_predict(self.features)
     
-    def accuracy(self):
+    def map_clusters(self):
         n_classes = len(np.unique(self.labels_by_class))
         cost_matrix = np.zeros((self.n_clusters, n_classes))
         
@@ -93,11 +103,14 @@ class Kmeans:
             for j in range(n_classes):
                 cost_matrix[i][j] = np.sum((self.clusters == i) & (self.labels_by_class == j))
         
+        print(cost_matrix)
         row, col = linear_sum_assignment(cost_matrix, maximize=True)
         cluster_to_label_map = dict(zip(row, col))
-        mapped_clusters = [cluster_to_label_map[c] for c in self.clusters]
-        return accuracy_score(self.labels_by_class, mapped_clusters)
-        
+        self. mapped_clusters = [cluster_to_label_map[c] for c in self.clusters]
+    
+    def accuracy(self):
+        return accuracy_score(self.labels_by_class, self.mapped_clusters)
+    
     def visualize(self):
         plt.scatter(self.features[:, 0], self.features[:, 1], c=self.clusters, cmap='viridis', alpha=0.5)
         plt.scatter(self.kmeans.cluster_centers_[:, 0], self.kmeans.cluster_centers_[:, 1], c='red', marker='x', s=100)
@@ -116,18 +129,35 @@ class Kmeans:
     
     def eval(self):
         self.predict()
+        self.map_clusters()
         print('Inertia: ', self.kmeans.inertia_)
         print('Silhouette score: ', silhouette_score(self.features, self.clusters))
         print("Adjusted Rand Index: ", adjusted_rand_score(self.labels_by_class, self.clusters))
         print('Accuracy: ', self.accuracy())
         self.visualize()
+        
+    def get_cluster_mapping(self):
+        classified_right = [i for i, (y_h, y) in enumerate(zip(self.mapped_clusters, self.labels_by_class)) if y_h == y]
+        right_labels = [self.labels[i] for i in classified_right]
+        # classified_wrong = [i for i, (y_h, y) in enumerate(zip(self.mapped_clusters, self.labels_by_class)) if y_h != y]
+        # wrong_labels = [self.labels[i] for i in wrong]
+        
+        if not os.path.isdir(RESULTS):
+            os.makedirs(RESULTS)
+        
+        for idx in classified_right:
+            image = self.image_names[idx]
+            shutil.copy(image, os.path.join(RESULTS, 'img_' + str(idx) + '.jpeg'))
 
 if __name__ == '__main__':
-    nr_samples = 2000
+    n_samples = 1000
     n_clusters = 2
     state = 0
     features = True
     
-    images, labels, labels_by_class = get_samples(nr_samples)
-    kmeans = Kmeans(images, labels, labels_by_class, n_clusters, 0, features)
+    images, image_names, labels, labels_by_class = get_samples(n_samples)
+    kmeans = Kmeans(images, image_names, labels, labels_by_class, n_samples * len(DATA), n_clusters, 0, features)
     kmeans.eval()
+    
+    right = kmeans.get_cluster_mapping()
+    
