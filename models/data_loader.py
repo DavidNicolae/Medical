@@ -1,42 +1,9 @@
 import os
-import h5py
-import torch
-import numpy as np
 import torch.utils.data as data
 import torchvision.transforms as T
 import json
 from torchvision.io import read_image
-from PIL import Image
 import matplotlib.pyplot as plt
-
-DIR = 'h5_data'
-FILE_FORMAT = 'camelyonpatch_level_2_split_{}_{}.h5'
-
-def h5_to_jpeg(path):
-    try:
-        os.makedirs(path)
-    except:
-        print('Data already prepared')
-        return
-    
-    for stage in ['train', 'test', 'valid']:
-        inner_path = os.path.join(path, stage)
-        os.makedirs(inner_path)
-        
-        images = h5py.File(os.path.join(DIR, FILE_FORMAT.format(stage, 'x')), 'r')
-        labels = h5py.File(os.path.join(DIR, FILE_FORMAT.format(stage, 'y')), 'r')
-        x_key = list(images.keys())[0]
-        y_key = list(labels.keys())[0]
-        labels_dict = {}
-        
-        for index, image in enumerate(images[x_key]):
-            img = Image.fromarray(image)
-            img_name = 'img_' + str(index) + '.jpeg'
-            img.save(os.path.join(inner_path, img_name), 'jpeg')
-            labels_dict[index] = (img_name, labels[y_key][index].flatten().tolist()[0])
-            
-        with open(os.path.join(inner_path, 'labels.json'), 'w') as f:
-            json.dump(labels_dict, f, indent=4)
 
 class HE_Dataset(data.Dataset):
     
@@ -56,10 +23,9 @@ class HE_Dataset(data.Dataset):
         return image, label
         
 if __name__ == '__main__':
-    h5_to_jpeg('data\pcam')
     dataset = HE_Dataset('data/pcam/train', 'labels.json')
-    # dataset = HE_Dataset('data/pcam/test')
-    # dataset = HE_Dataset('data/pcam/valid')
+    # dataset = HE_Dataset('data/pcam/test', 'labels.json)
+    # dataset = HE_Dataset('data/pcam/valid', 'labels.json)
     x, y = dataset.__getitem__(0)
     print(dataset.__len__())
     print(x, y)
