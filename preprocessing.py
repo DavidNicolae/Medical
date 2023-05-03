@@ -125,6 +125,7 @@ def get_positive_patches_TMA(labels):
                 patch_brightness = np.mean(brightness_channel / 255)
                 
                 if patch_saturation > SATURATION_THRESHOLD and patch_brightness < BRIGHTNESS_THRESHOLD:
+                # if check_thresholds(patch_hsv):
                     patch_name = 'img_' + str(index) + '.jpeg'
                     cv2.imwrite(os.path.join(PATCHES_DIR_TMA, patch_name), patch_rgb)
                     labels[index] = (patch_name, 1)
@@ -182,6 +183,7 @@ def get_negative_patches_TMA(labels):
                 patch_brightness = np.mean(brightness_channel / 255)
                 
                 if patch_saturation > SATURATION_THRESHOLD and patch_brightness < BRIGHTNESS_THRESHOLD:
+                # if check_thresholds(patch_hsv):
                     patch_name = 'img_' + str(index) + '.jpeg'
                     cv2.imwrite(os.path.join(PATCHES_DIR_TMA, patch_name), patch_rgb)
                     labels[index] = (patch_name, 0)
