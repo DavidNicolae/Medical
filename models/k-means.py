@@ -4,6 +4,7 @@ import json
 import torch
 import shutil
 import numpy as np
+import torch.optim as optim
 import pytorch_lightning as pl
 import matplotlib.pyplot as plt
 import torchvision.models as models
@@ -15,11 +16,23 @@ from sklearn.metrics import silhouette_score
 from sklearn.metrics import adjusted_rand_score
 from sklearn.metrics import accuracy_score
 from scipy.optimize import linear_sum_assignment
+from torch.utils.data import random_split, DataLoader, Dataset, TensorDataset
 # from sklearn.metrics import confusion_matrix
 
 DATA = ['data/pcam/trainHE', 'data/TMA/train']
 RESULTS_RIGHT = 'data/kmeans/right'
 RESULTS_WRONG = 'data/kmeans/wrong'
+
+class MyDataset(Dataset):
+    def __init__(self, images, domain_labels):
+        self.images = images
+        self.domain_labels = domain_labels
+
+    def __len__(self):
+        return len(self.images)
+
+    def __getitem__(self, index):
+        return self.images[index], self.domain_labels[index]
 
 def shuffle_data(images, image_names, labels, labels_by_class):
     indices = torch.randperm(len(images))
@@ -86,44 +99,98 @@ def get_samples(n_samples):
     
     return all_images, image_names, np.array(all_labels), np.array(labels_by_class)
 
-def get_feature_vectors(features):
-    half = len(features) // len(DATA)
-    mean_feature_vector1 = torch.mean(features[:half], axis=0)
-    mean_feature_vector2 = torch.mean(features[half:], axis=0)
+# def get_feature_vectors(features):
+#     half = len(features) // len(DATA)
+#     mean_feature_vector1 = torch.mean(features[:half], axis=0)
+#     mean_feature_vector2 = torch.mean(features[half:], axis=0)
     
-    return [mean_feature_vector1, mean_feature_vector2]
+#     return [mean_feature_vector1, mean_feature_vector2]
 
-def get_features(images, n_samples, batch_size):
-    features = []
-    encoder = Encoder().to('cuda')
-    for i in range(0, n_samples, batch_size):
-        batch = torch.stack(images[i:min(i + batch_size, n_samples)])
-        feature_vector = encoder(batch.to(encoder.device))
-        features.append(feature_vector.cpu().view(feature_vector.size(0), -1))
-    features = torch.cat(features)
-    feature_vectors = get_feature_vectors(features)
-    # feature_vectors = PCA(2).fit_transform(feature_vectors)
-    return features, feature_vectors
+def domain_adaptation_loss(logits, labels):
+    return nn.BCELoss()(logits, labels)
+
+class GradientReversalFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x, alpha):
+        ctx.alpha = alpha
+        return x.view_as(x)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        output = grad_output.neg() * ctx.alpha
+        return output, None
+
+class GradientReversal(torch.nn.Module):
+    def __init__(self, alpha):
+        super(GradientReversal, self).__init__()
+        self.alpha = alpha
+
+    def forward(self, x):
+        return GradientReversalFunction.apply(x, self.alpha)
 
 class Encoder(pl.LightningModule):
-    def __init__(self):
+    def __init__(self, alpha=1.0):
         super().__init__()
         model = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
         layers = list(model.children())[:-1]
         self.feature_extractor = nn.Sequential(*layers)
         self.feature_extractor.eval()
+        self.grl = GradientReversal(alpha)
+        self.domain_classifier = nn.Sequential(
+            nn.Linear(2048, 1024),
+            nn.ReLU(),
+            nn.Linear(1024, 512),
+            nn.ReLU(),
+            nn.Linear(512, 1),
+            nn.Sigmoid()
+        )
         
         for param in self.feature_extractor.parameters():
             param.requires_grad = False
     
     def forward(self, x):
         features = self.feature_extractor(x)
-        return features
+        features_flat = features.view(features.size(0), -1)
+        domain_logits = self.domain_classifier(self.grl(features_flat))
+        return features_flat, domain_logits.squeeze()
+
+# def get_features(images, n_samples, batch_size):
+#     features = []
+#     encoder = Encoder().to('cuda')
+#     for i in range(0, n_samples, batch_size):
+#         batch = torch.stack(images[i:min(i + batch_size, n_samples)])
+#         feature_vector = encoder(batch.to(encoder.device))
+#         features.append(feature_vector.cpu().view(feature_vector.size(0), -1))
+#     features = torch.cat(features)
+#     feature_vectors = get_feature_vectors(features)
+#     # feature_vectors = PCA(2).fit_transform(feature_vectors)
+#     return features, feature_vectors
+
+def train_domain_adaptation(encoder, train_loader, val_loader, epochs):
+    optimizer = optim.Adam(encoder.parameters(), lr=0.001)
+
+    for epoch in range(epochs):
+        encoder.train()
+        for images, domain_labels in train_loader:
+            optimizer.zero_grad()
+            _, domain_logits = encoder(images.to(encoder.device))
+            loss = domain_adaptation_loss(domain_logits, domain_labels.to(encoder.device))
+            loss.backward()
+            optimizer.step()
+
+        encoder.eval()
+        val_loss = 0
+        for images, domain_labels in val_loader:
+            _, domain_logits = encoder(images.to(encoder.device))
+            val_loss += domain_adaptation_loss(domain_logits, domain_labels.to(encoder.device)).item()
+
+        print(f"Epoch {epoch + 1}/{epochs}, Validation Loss: {val_loss / len(val_loader)}")
+
 
 class Kmeans:
-    def __init__(self, features, image_names, labels, labels_by_class, n_samples, n_clusters, state, feature_vectors):
-        initial_centers = PCA(2).fit_transform(np.stack(feature_vectors))
-        self.kmeans = KMeans(n_clusters, random_state=state, init=initial_centers, n_init=1)
+    def __init__(self, features, image_names, labels, labels_by_class, n_samples, n_clusters, state):
+        # initial_centers = PCA(2).fit_transform(np.stack(feature_vectors))
+        self.kmeans = KMeans(n_clusters, random_state=state, n_init='auto')
         self.features = features
         self.image_names = image_names
         self.labels = labels
@@ -201,9 +268,9 @@ class Kmeans:
         
     def save_cluster_mapping(self):
         classified_right = [i for i, (y_h, y) in enumerate(zip(self.mapped_clusters, self.labels_by_class)) if y_h == y]
-        right_labels = [self.labels[i] for i in classified_right]
+        # right_labels = [self.labels[i] for i in classified_right]
         classified_wrong = [i for i, (y_h, y) in enumerate(zip(self.mapped_clusters, self.labels_by_class)) if y_h != y]
-        wrong_labels = [self.labels[i] for i in classified_wrong]
+        # wrong_labels = [self.labels[i] for i in classified_wrong]
         
         if not os.path.isdir(RESULTS_RIGHT):
             os.makedirs(RESULTS_RIGHT)
@@ -222,20 +289,40 @@ if __name__ == '__main__':
     n_samples = 2500
     n_clusters = 2
     state = 0
-    batch_size = 256
+    batch_size = 128
     torch.seed()
     
     images, image_names, labels, labels_by_class = get_samples(n_samples)
     images = normalize(images)
-    shuffle_data(images, image_names, labels, labels_by_class)
-    features, feature_vectors = get_features(images, n_samples * len(DATA), batch_size)
+    
+    # shuffle_data(images, image_names, labels, labels_by_class)
+    
+    train_ratio = 0.8
+    train_size = int(train_ratio * len(images))
+    val_size = len(images) - train_size
+    data = list(zip(images, labels_by_class.astype(np.float32)))
+    train_data, val_data = random_split(data, [train_size, val_size])
+    train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
+    
+    encoder = Encoder()
+    epochs = 50
+    train_domain_adaptation(encoder, train_loader, val_loader, epochs)
+    
+    features = []
+    for batch in DataLoader(images, batch_size):
+        batch_features, _ = encoder(batch.to(encoder.device))
+        reversed_features = encoder.grl(batch_features.to(encoder.device))
+        features.append(reversed_features.detach().cpu())
+    features = torch.cat(features)
+    # features, feature_vectors = get_features(images, n_samples * len(DATA), batch_size)
     
     # rfe(features, labels_by_class)
     # rfe_ranking, rfe_support = get_rfe()
     # features = features[:, np.where(rfe_ranking == 1)[0]]
     
     features = PCA(2).fit_transform(features)
-    kmeans = Kmeans(features, image_names, labels, labels_by_class, n_samples * len(DATA), n_clusters, state, feature_vectors)
+    kmeans = Kmeans(features, image_names, labels, labels_by_class, n_samples * len(DATA), n_clusters, state)
     kmeans.eval()
     
     kmeans.save_cluster_mapping()
