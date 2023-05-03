@@ -21,13 +21,13 @@ DATA = ['data/pcam/trainHE', 'data/TMA/train']
 RESULTS_RIGHT = 'data/kmeans/right'
 RESULTS_WRONG = 'data/kmeans/wrong'
 
-def shuffle_data(features, image_names, labels, labels_by_class):
-    indices = torch.randperm(len(features))
+def shuffle_data(images, image_names, labels, labels_by_class):
+    indices = torch.randperm(len(images))
 
-    features[:] = features[indices]
+    images[:] = [images[i] for i in indices.tolist()]
     image_names[:] = [image_names[i] for i in indices.tolist()]
     labels[:] = labels[indices]
-    labels_by_class[:] = [labels_by_class[i] for i in indices.tolist()]
+    labels_by_class[:] = labels_by_class[indices]
 
 def get_aggregate(images):
     aggregate = np.mean(images, axis=0)
@@ -159,10 +159,13 @@ class Kmeans:
         axes[0, 0].set_title('K-means Clustering with PCA')
 
         # Scatter plot of original data labels
-        half = len(self.labels) // 2
         scatter_kwargs = dict(facecolor='none', alpha=0.5)
-        axes[0, 1].scatter(self.features[:half, 0], self.features[:half, 1], edgecolors='r', label='Pcam', **scatter_kwargs)
-        axes[0, 1].scatter(self.features[half:, 0], self.features[half:, 1], edgecolors='b', label='TMA', **scatter_kwargs)
+        axes[0, 1].scatter([self.features[idx, 0] for idx, lbl in enumerate(labels_by_class) if lbl == 0],
+                           [self.features[idx, 1] for idx, lbl in enumerate(labels_by_class) if lbl == 0],
+                           edgecolors='r', label='Pcam', s=10, **scatter_kwargs)
+        axes[0, 1].scatter([self.features[idx, 0] for idx, lbl in enumerate(labels_by_class) if lbl == 1],
+                           [self.features[idx, 1] for idx, lbl in enumerate(labels_by_class) if lbl == 1],
+                           edgecolors='b', label='TMA', s=10, **scatter_kwargs)
         axes[0, 1].scatter(self.kmeans.cluster_centers_[:, 0], self.kmeans.cluster_centers_[:, 1], c='black', marker='x', s=100, label='Centroids')
         axes[0, 1].set_title('K-means Clustering with PCA')
         axes[0, 1].legend()
@@ -224,17 +227,13 @@ if __name__ == '__main__':
     
     images, image_names, labels, labels_by_class = get_samples(n_samples)
     images = normalize(images)
+    shuffle_data(images, image_names, labels, labels_by_class)
     features, feature_vectors = get_features(images, n_samples * len(DATA), batch_size)
     
     # rfe(features, labels_by_class)
-    rfe_ranking, rfe_support = get_rfe()
+    # rfe_ranking, rfe_support = get_rfe()
+    # features = features[:, np.where(rfe_ranking == 1)[0]]
     
-    print(features.shape)
-    features = features[:, np.where(rfe_ranking == 1)[0]]
-    print(features.shape)
-    # features = torch.stack(images).reshape((n_samples, -1))
-    
-    shuffle_data(features, image_names, labels, labels_by_class)
     features = PCA(2).fit_transform(features)
     kmeans = Kmeans(features, image_names, labels, labels_by_class, n_samples * len(DATA), n_clusters, state, feature_vectors)
     kmeans.eval()
