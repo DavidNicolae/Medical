@@ -5,3 +5,6 @@ data/*
 IMGS/*
 lightning_logs/*
 models/__pycache__/data_loader.cpython-310.pyc
+.lr_find_1afea2c1-f631-486d-ad76-51bb1a356271.ckpt
+.lr_find_d8eebcc3-1c85-450d-8924-bd3fa837dd0b.ckpt
+models/__pycache__/utils.cpython-310.pyc
