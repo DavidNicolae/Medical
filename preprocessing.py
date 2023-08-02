@@ -10,14 +10,15 @@ from shapely.geometry import box
 H5_DIR = 'h5_data'
 TMA_DATA_DIR = 'data/TMA'
 PCAM_DATA_DIR = 'data/pcam'
-PATCHES_DIR_TMA = 'data/TMA/train'
+PATCHES_DIR_TMA = 'data/TMA/trainHE'
 PCAM_DIR = 'data/pcam/train'
 OPENSLIDE_PATH = 'C:/OpenSlide/openslide-win64-20221217/bin'
 FILE_FORMAT = 'camelyonpatch_level_2_split_{}_{}.h5'
 ANNOTATIONS_PATH = 'annotations.csv'
+
 DOWNSAMPLE_FACTOR = 10
-SATURATION_THRESHOLD = 0.35
-BRIGHTNESS_THRESHOLD = 0.7
+SATURATION_THRESHOLD = 0.07
+BRIGHTNESS_THRESHOLD = 0.8
 
 with os.add_dll_directory(OPENSLIDE_PATH):
     import openslide
@@ -41,6 +42,7 @@ def h5_to_jpeg():
         
         for index, image in enumerate(images[x_key]):
             img_name = 'img_' + str(index) + '.jpeg'
+            image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
             cv2.imwrite(os.path.join(inner_path, img_name), image)
             labels_dict[index] = (img_name, labels[y_key][index].flatten().tolist()[0])
             
@@ -54,14 +56,28 @@ def check_thresholds(patch_hsv):
     patch_hue = np.mean(hue_channel / 255)
     patch_saturation = np.mean(saturation_channel / 255)
     patch_brightness = np.mean(brightness_channel / 255)
+    
+    # print(patch_saturation, patch_brightness, patch_hue)
+    
     if (patch_saturation > 0.4 and patch_brightness > 0.5 and patch_brightness < 0.7 and patch_hue > 0.5 and patch_hue < 0.6) or \
         (patch_saturation > 0.3 and patch_brightness > 0.7 and patch_brightness < 0.8 and patch_hue > 0.5 and patch_hue < 0.6):
         return True
     return False
-    
-def filter_pcam():
-    save_dir = 'data/pcam/trainHE'
-    waste = 'data/pcam/waste'
+
+def find_identical_images(images, image_names):
+    unique_images = {}
+    duplicate_names = []
+
+    for i, image in enumerate(images):
+        image_hash = hash(image.data.tobytes())
+        if image_hash in unique_images:
+            duplicate_names.extend([image_names[unique_images[image_hash]], image_names[i]])
+        else:
+            unique_images[image_hash] = i
+
+    return duplicate_names
+
+def filter_pcam(data_dir='data/pcam/test', save_dir='data/pcam/testHE', waste ='data/pcam/waste'):
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
     else:
@@ -69,24 +85,37 @@ def filter_pcam():
         return
     if not os.path.exists(waste):
         os.makedirs(waste)
-    labels_file = os.listdir(PCAM_DIR)[-1]
-    f = open(os.path.join(PCAM_DIR, labels_file))
+    
+    labels_file = os.listdir(data_dir)[-1]
+    f = open(os.path.join(data_dir, labels_file))
     labels = json.load(f)
     new_labels = {}
+    images = []
+    image_names = []
+    image_labels = []
     index = 0
     
     for _, file in enumerate(list(labels.values())):
-        image = cv2.imread(os.path.join(PCAM_DIR, file[0]))
-        patch_hsv = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2HSV)
+        image = cv2.imread(os.path.join(data_dir, file[0]))
+        images.append(image)
+        image_names.append(file[0])
+        image_labels.append(file[1])
+    
+    duplicates = find_identical_images(images, image_names)
+    print(duplicates, 'da')
+    
+    for idx in range(len(images)):
+        image = images[idx]
+        patch_hsv = cv2.cvtColor(np.array(image), cv2.COLOR_BGR2HSV)
         patch_hsv = cv2.GaussianBlur(patch_hsv, (5, 5), 0)
 
-        if check_thresholds(patch_hsv):
+        if check_thresholds(patch_hsv) and image_names[idx] not in duplicates:
             patch_name = 'img_' + str(index) + '.jpeg'
             cv2.imwrite(os.path.join(save_dir, patch_name), image)
-            new_labels[index] = (patch_name, file[1])
+            new_labels[index] = (patch_name, image_labels[idx])
             index += 1
-        else:
-            cv2.imwrite(os.path.join(waste, file[0]), image)
+        # else:
+        #     cv2.imwrite(os.path.join(waste, file[0]), image)
 
     with open(os.path.join(save_dir, 'labels.json'), 'w') as f:
         json.dump(new_labels, f, indent=4)
@@ -100,6 +129,7 @@ def get_positive_patches_TMA(labels):
     
     patch_size = (96, 96)
     index = 0
+    disc = 0
     
     for _, row in df.iterrows():
         if row['stain'] != 'HE':
@@ -130,6 +160,10 @@ def get_positive_patches_TMA(labels):
                     cv2.imwrite(os.path.join(PATCHES_DIR_TMA, patch_name), patch_rgb)
                     labels[index] = (patch_name, 1)
                     index += 1
+                else:
+                    patch_name = 'img_' + str(disc) + '.jpeg'
+                    cv2.imwrite(os.path.join('data/TMA/discarded', patch_name), patch_rgb)
+                    disc += 1
 
 def parse_annotations(csv_path):
     annotations = {}
@@ -152,6 +186,7 @@ def get_negative_patches_TMA(labels):
         
     patch_size = (96, 96)
     index = len(labels)
+    disc = len(labels)
     
     for tma_id, regions in annotations.items():
         slide_path = os.path.join(TMA_DATA_DIR, 'HE', tma_id)
@@ -188,6 +223,10 @@ def get_negative_patches_TMA(labels):
                     cv2.imwrite(os.path.join(PATCHES_DIR_TMA, patch_name), patch_rgb)
                     labels[index] = (patch_name, 0)
                     index += 1
+                else:
+                    patch_name = 'img_' + str(disc) + '.jpeg'
+                    cv2.imwrite(os.path.join('data/TMA/discarded', patch_name), patch_rgb)
+                    disc += 1
     
     with open(os.path.join(PATCHES_DIR_TMA, 'labels.json'), 'w') as f:
         json.dump(labels, f, indent=4)
@@ -196,5 +235,5 @@ if __name__ == '__main__':
     labels = {}
     h5_to_jpeg()
     filter_pcam()
-    get_positive_patches_TMA(labels)
-    get_negative_patches_TMA(labels)
+    # get_positive_patches_TMA(labels)
+    # get_negative_patches_TMA(labels)
