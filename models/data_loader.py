@@ -1,7 +1,6 @@
 import os
-import torch.utils.data as data
-import torchvision.transforms as T
 import json
+import torch.utils.data as data
 from torchvision.io import read_image
 import matplotlib.pyplot as plt
 from torchvision import transforms
@@ -33,7 +32,6 @@ if __name__ == '__main__':
         transforms.RandomVerticalFlip(),
         transforms.RandomRotation(20),
         transforms.ToTensor(),
-        # transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
     
     dataset = HE_Dataset('data/pcam/trainHE', 'labels.json', transform)
@@ -43,7 +41,7 @@ if __name__ == '__main__':
     plt.imshow(x.permute(1, 2, 0))
     plt.show()
     
-    f = open(os.path.join('data/pcam/testHE', 'labels.json'), 'r')
+    f = open(os.path.join('data/pcam/trainHE', 'labels.json'), 'r')
     labels = json.load(f)
     labels = [val[1] for val in list(labels.values())]
     print(labels.count(1), labels.count(0), len(labels))
