@@ -10,7 +10,7 @@ from shapely.geometry import box
 H5_DIR = 'h5_data'
 TMA_DATA_DIR = 'data/TMA'
 PCAM_DATA_DIR = 'data/pcam'
-PATCHES_DIR_TMA = 'data/TMA/trainHE'
+PATCHES_DIR_TMA = 'data/TMA/trainHE_all'
 PCAM_DIR = 'data/pcam/train'
 OPENSLIDE_PATH = 'C:/OpenSlide/openslide-win64-20221217/bin'
 FILE_FORMAT = 'camelyonpatch_level_2_split_{}_{}.h5'
@@ -119,6 +119,43 @@ def filter_pcam(data_dir='data/pcam/test', save_dir='data/pcam/testHE', waste ='
 
     with open(os.path.join(save_dir, 'labels.json'), 'w') as f:
         json.dump(new_labels, f, indent=4)
+        
+# def filter_TMA(data_dir, save_dir, waste):
+#     # if not os.path.exists(save_dir):
+#     #     os.makedirs(save_dir)
+#     # else:
+#     #     print('Data already filtered')
+#     #     return
+#     # if not os.path.exists(waste):
+#     #     os.makedirs(waste)
+    
+#     labels_file = os.listdir(data_dir)[-1]
+#     f = open(os.path.join(data_dir, labels_file))
+#     labels = json.load(f)
+#     new_labels = {}
+#     images = []
+#     image_names = []
+#     image_labels = []
+#     index = 0
+    
+#     for _, file in enumerate(list(labels.values())):
+#         image = cv2.imread(os.path.join(data_dir, file[0]))
+#         images.append(image)
+#         image_names.append(file[0])
+#         image_labels.append(file[1])
+    
+#     duplicates = find_identical_images(images, image_names)
+#     print(duplicates, 'da')
+    
+#     for idx in range(int(len(images) * 0.9), len(images)):
+#         image = images[idx]
+#         patch_name = 'img_' + str(index) + '.jpeg'
+#         cv2.imwrite(os.path.join(save_dir, patch_name), image)
+#         new_labels[index] = (patch_name, image_labels[idx])
+#         index += 1
+
+#     with open(os.path.join(save_dir, 'labels.json'), 'w') as f:
+#         json.dump(new_labels, f, indent=4)
 
 def get_positive_patches_TMA(labels):
     csv_path = os.path.join(TMA_DATA_DIR, ANNOTATIONS_PATH)
@@ -235,5 +272,7 @@ if __name__ == '__main__':
     labels = {}
     h5_to_jpeg()
     filter_pcam()
-    # get_positive_patches_TMA(labels)
-    # get_negative_patches_TMA(labels)
+    get_positive_patches_TMA(labels)
+    get_negative_patches_TMA(labels)
+    
+    # filter_TMA(data_dir='data/TMA/trainHE', save_dir='data/TMA/testHE', waste ='data/TMA/waste')

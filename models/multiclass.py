@@ -20,10 +20,33 @@ from sklearn.metrics import precision_score, recall_score, f1_score, classificat
 from torchvision.transforms import ConvertImageDtype
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from sklearn.model_selection import KFold
-from torchvision.models import resnet18, ResNet18_Weights, resnet50, ResNet50_Weights
+from torchvision.models import resnet18, ResNet18_Weights, resnet50, ResNet50_Weights, densenet121, DenseNet121_Weights
 
 LOGS = 'lightning_logs'
-CHECKPOINTS = 'lightning_logs/checkpoints3'
+CHECKPOINTS = 'lightning_logs/checkpoints7'
+
+class MixedTransformDataset(data.Dataset):
+    """
+    A dataset wrapper that applies different transforms depending on the image source.
+    Assumes PCam images have 'pcam' in their path, others are treated as non-PCam.
+    """
+    def __init__(self, base_dataset, pcam_transform, other_transform):
+        self.base_dataset = base_dataset
+        self.pcam_transform = pcam_transform
+        self.other_transform = other_transform
+
+    def __len__(self):
+        return len(self.base_dataset)
+
+    def __getitem__(self, idx):
+        image, label = self.base_dataset[idx]
+        if 'pcam' in self.base_dataset.labels[str(idx)][0]:
+            if self.pcam_transform:
+                image = self.pcam_transform(image)
+        else:
+            if self.other_transform:
+                image = self.other_transform(image)
+        return image, label
 
 class PCAM_Model(pl.LightningModule):
     def __init__(self, lr):
@@ -44,7 +67,7 @@ class PCAM_Model(pl.LightningModule):
     
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), self.lr, weight_decay=1e-3)
-        scheduler = ReduceLROnPlateau(optimizer=optimizer, mode='min', factor=0.5, patience=10, verbose=True)
+        scheduler = ReduceLROnPlateau(optimizer=optimizer, mode='min', factor=0.2, patience=4, verbose=True)
         return {'optimizer': optimizer, 'lr_scheduler': scheduler, 'monitor': 'valid_loss'}
     
     def training_step(self, batch):
@@ -84,10 +107,23 @@ if __name__ == '__main__':
     epochs = 100
     batch_size = 64
     resume = False
-    train = False
+    train = True
     k_folds = 8
 
-    train_transform = transforms.Compose([
+    # PCam-specific transform: random affine to shift content, then center crop
+    pcam_train_transform = transforms.Compose([
+        transforms.ToPILImage(),
+        transforms.RandomAffine(degrees=0, translate=(0.2, 0.2)),  # up to 20% shift
+        transforms.RandomHorizontalFlip(0.5),
+        transforms.RandomVerticalFlip(0.5),
+        transforms.RandomRotation(45),
+        transforms.CenterCrop(96),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.5766, 0.4289, 0.7023], std=[0.1904, 0.2059, 0.1479])
+    ])
+
+    # Other dataset transform (as before)
+    other_train_transform = transforms.Compose([
         transforms.ToPILImage(),
         transforms.RandomHorizontalFlip(0.5),
         transforms.RandomVerticalFlip(0.5),
@@ -95,7 +131,7 @@ if __name__ == '__main__':
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.5766, 0.4289, 0.7023], std=[0.1904, 0.2059, 0.1479])
     ])
-    
+
     valid_transform = transforms.Compose([
         transforms.ToPILImage(),
         transforms.ToTensor(),
@@ -107,7 +143,7 @@ if __name__ == '__main__':
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.5766, 0.4289, 0.7023], std=[0.1904, 0.2059, 0.1479])
     ])
-    
+
     checkpoint_loss_callback = ModelCheckpoint(
         dirpath=CHECKPOINTS,
         filename='pcam-{epoch:02d}-{valid_loss:.2f}',
@@ -133,8 +169,10 @@ if __name__ == '__main__':
         verbose=False,
         mode='min'
     )
-    
-    train_dataset = HE_Dataset('data/mixed/train', 'labels.json', train_transform)
+
+    # Use the base dataset with no transform, then wrap with MixedTransformDataset
+    base_train_dataset = HE_Dataset('data/mixed/train', 'labels.json', transforms=None)
+    train_dataset = MixedTransformDataset(base_train_dataset, pcam_train_transform, other_train_transform)
     train_loader = data.DataLoader(train_dataset, batch_size, pin_memory=True, num_workers=5, shuffle=True)
 
     valid_dataset = HE_Dataset('data/mixed/valid', 'labels.json', valid_transform)

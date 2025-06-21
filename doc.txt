@@ -1,0 +1,5 @@
+3 - vechi
+4 - nou + shuffle resnet 18
+5 - nou + shuffle resnet 50
+6 - nou + suffle densenet121
+7 - 4 nou + lr adjust

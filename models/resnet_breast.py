@@ -244,13 +244,13 @@ if __name__ == '__main__':
         mode='min'
     )
     
-    train_dataset = HE_Dataset('data/pcam/train', 'labels.json', train_transform)
+    train_dataset = HE_Dataset('data/pcam/trainHE', 'labels.json', train_transform)
     train_loader = data.DataLoader(train_dataset, batch_size, pin_memory=True, num_workers=10, shuffle=True)
 
-    valid_dataset = HE_Dataset('data/pcam/valid', 'labels.json', valid_transform)
+    valid_dataset = HE_Dataset('data/pcam/validHE', 'labels.json', valid_transform)
     valid_loader = data.DataLoader(valid_dataset, batch_size, pin_memory=True, num_workers=5)
 
-    test_dataset = HE_Dataset('data/pcam/test', 'labels.json', test_transform)
+    test_dataset = HE_Dataset('data/pcam/testHE', 'labels.json', test_transform)
     test_loader = data.DataLoader(test_dataset, batch_size, pin_memory=True, num_workers=5)
     
     checkpoints = os.listdir(CHECKPOINTS)

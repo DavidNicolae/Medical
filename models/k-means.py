@@ -20,7 +20,7 @@ from sklearn.metrics import accuracy_score
 from scipy.optimize import linear_sum_assignment
 from torch.utils.data import random_split, DataLoader, Dataset, TensorDataset
 
-DATA = ['data/pcam/trainHE', 'data/TMA/train']
+DATA = ['data/pcam/trainHE', 'data/TMA/trainHE_all']
 RESULTS_RIGHT = 'data/kmeans/right'
 RESULTS_WRONG = 'data/kmeans/wrong'
 
@@ -345,7 +345,7 @@ if __name__ == '__main__':
             new_lbc.append(labels_by_class[idx])
     new_lb = np.array(new_lb)
     new_lbc = np.array(new_lbc)
-    
+
     features = get_features(images, n_samples * len(DATA), batch_size)
     print(features.shape)
     
